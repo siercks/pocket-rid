@@ -14,3 +14,6 @@
 - M2: `cargo fuzz init` is Unix-only, so the fuzz crate was written by hand in its layout. Shared accessor calls live in `fuzz/src/lib.rs` (three targets use them). `fuzz/Cargo.lock` is not committed (targets and seeds only); seeds are `corpus/<target>/seed_*`.
 - M3: `rid-proto` API: `Frame { seq, t_dev_us, payload: Payload }`, `encode_raw`, `decode_raw`, `FrameBuf::encode` (COBS + `0x00`), `cobs_encode`/`cobs_decode`, `crc32`. `FrameBuf` lives here because both firmware and tests build it.
 - M3: `decode_raw` returns `BadLength` when a known type's payload size disagrees with its layout; `rid-host` counts that as `bad_frames`.
+- M4: JSON uses serde derive (field order = struct order); `serde_json` runs without `preserve_order`. `ts_acc` and the accuracy fields are emitted as raw codes. `source` is `"wifi_beacon"` for 1, else `"unknown"`; an unknown LOG level is `"unknown"`. `pack_error` is the `PackError` variant name without its payload.
+- M4: A frame that passes CRC but has a payload size its type disallows counts as `bad_frames` and is not printed as device text (only chunks < 18 B are).
+- M4: The `cfg(unix)` path of `rid-host` was checked locally with `cargo clippy --target x86_64-unknown-linux-gnu`; CI builds and tests it natively.
