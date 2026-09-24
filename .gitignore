@@ -1,0 +1,4 @@
+/target
+/firmware/target
+/crates/odid/fuzz/target
+/crates/odid/fuzz/artifacts
