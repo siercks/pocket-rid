@@ -12,3 +12,5 @@
 - M1: `build_beacon` emits only the fixed 36-byte header (SA = BSSID = mac, DA broadcast) and the RID element. `build_pack` writes header `0xF2` (protocol version 2).
 - M1: `odid` enables `encode` for its own tests through a self dev-dependency.
 - M2: `cargo fuzz init` is Unix-only, so the fuzz crate was written by hand in its layout. Shared accessor calls live in `fuzz/src/lib.rs` (three targets use them). `fuzz/Cargo.lock` is not committed (targets and seeds only); seeds are `corpus/<target>/seed_*`.
+- M3: `rid-proto` API: `Frame { seq, t_dev_us, payload: Payload }`, `encode_raw`, `decode_raw`, `FrameBuf::encode` (COBS + `0x00`), `cobs_encode`/`cobs_decode`, `crc32`. `FrameBuf` lives here because both firmware and tests build it.
+- M3: `decode_raw` returns `BadLength` when a known type's payload size disagrees with its layout; `rid-host` counts that as `bad_frames`.
