@@ -7,3 +7,6 @@ publish = false
 
 [features]
 encode = []
+
+[dev-dependencies]
+odid = { path = ".", features = ["encode"] }
