@@ -11,3 +11,4 @@
 - M1: `System::area_radius_m()` returns `f32` (no invalid raw value); `System::timestamp_unix_s()` returns `u64`.
 - M1: `build_beacon` emits only the fixed 36-byte header (SA = BSSID = mac, DA broadcast) and the RID element. `build_pack` writes header `0xF2` (protocol version 2).
 - M1: `odid` enables `encode` for its own tests through a self dev-dependency.
+- M2: `cargo fuzz init` is Unix-only, so the fuzz crate was written by hand in its layout. Shared accessor calls live in `fuzz/src/lib.rs` (three targets use them). `fuzz/Cargo.lock` is not committed (targets and seeds only); seeds are `corpus/<target>/seed_*`.

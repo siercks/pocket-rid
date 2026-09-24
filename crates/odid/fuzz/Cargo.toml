@@ -1,0 +1,36 @@
+[package]
+name = "odid-fuzz"
+version = "0.0.0"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+odid = { path = ".." }
+
+[workspace]
+
+[[bin]]
+name = "beacon"
+path = "fuzz_targets/beacon.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "pack"
+path = "fuzz_targets/pack.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "message"
+path = "fuzz_targets/message.rs"
+test = false
+doc = false
+bench = false
