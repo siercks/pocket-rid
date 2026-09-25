@@ -11,7 +11,6 @@ use rid_proto::PACK_CAP;
 
 use crate::status::{BEACON_ERRORS, BEACONS, MGMT_FRAMES, OBS_DROPPED, RADIO_ERRORS, RID_FRAMES};
 
-#[expect(dead_code, reason = "fields are read by obs_task in M7")]
 pub struct RawObs {
     pub t_dev_us: u64,
     pub t_mac_us: u32,

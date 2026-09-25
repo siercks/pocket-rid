@@ -2,9 +2,12 @@
 #![no_main]
 
 mod board;
+mod obs;
 mod radio;
 mod status;
+mod tracks;
 mod ui;
+mod wire;
 
 use embassy_executor::Spawner;
 use embassy_time::Timer;
@@ -29,6 +32,8 @@ async fn main(spawner: Spawner) {
     let timg0 = TimerGroup::new(p.TIMG0);
     let sw_int = SoftwareInterruptControl::new(p.SW_INTERRUPT);
     esp_rtos::start(timg0.timer0, sw_int.software_interrupt0);
+    log::set_logger(&wire::FrameLogger).expect("set_logger");
+    log::set_max_level(log::LevelFilter::Info);
 
     let pwr = Output::new(p.GPIO15, Level::High, OutputConfig::default());
     // The panel needs a few milliseconds after power-on before its pins are driven.
@@ -56,27 +61,21 @@ async fn main(spawner: Spawner) {
 
     let (mut controller, interfaces) =
         esp_radio::wifi::new(p.WIFI, ControllerConfig::default()).expect("wifi::new");
+    let device_mac = interfaces.station.mac_address();
     let mut sniffer = interfaces.sniffer;
     sniffer.set_receive_cb(radio::sniffer_cb);
     sniffer.set_promiscuous_mode(true).expect("promiscuous");
     controller
         .set_channel(6, SecondaryChannel::None)
         .expect("set_channel");
-    spawner.spawn(radio::radio_task(controller, sniffer).expect("spawn radio_task"));
+    log::info!("radio up ch=6");
 
-    loop {
-        #[cfg(feature = "console-text")]
-        {
-            use core::sync::atomic::Ordering::Relaxed;
-            use status::*;
-            esp_println::println!(
-                "MGMT {} BEACON {} RID {} DROP {}",
-                MGMT_FRAMES.load(Relaxed),
-                BEACONS.load(Relaxed),
-                RID_FRAMES.load(Relaxed),
-                OBS_DROPPED.load(Relaxed)
-            );
-        }
-        Timer::after_millis(1000).await;
-    }
+    #[cfg(not(feature = "console-text"))]
+    spawner.spawn(wire::tx_task(p.USB_DEVICE).expect("spawn tx_task"));
+    #[cfg(feature = "console-text")]
+    spawner.spawn(wire::tx_task().expect("spawn tx_task"));
+    spawner.spawn(obs::obs_task().expect("spawn obs_task"));
+    spawner.spawn(status::status_task(device_mac).expect("spawn status_task"));
+    spawner.spawn(radio::radio_task(controller, sniffer).expect("spawn radio_task"));
+    status::send_hello(device_mac);
 }
