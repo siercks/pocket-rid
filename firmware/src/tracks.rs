@@ -8,11 +8,12 @@ use crate::radio::RawObs;
 
 pub const MAX_TRACKS: usize = 16;
 pub const HIDE_AFTER_US: u64 = 10_000_000;
+pub const EVICT_AFTER_US: u64 = 60_000_000;
+pub const SNAPSHOT_ROWS: usize = 8;
 
 #[derive(Clone, Copy)]
 pub struct Track {
     pub mac: [u8; 6],
-    #[expect(dead_code, reason = "shown by the DETAIL view in M8")]
     pub first_seen_us: u64,
     pub last_seen_us: u64,
     pub frames: u32,
@@ -98,7 +99,39 @@ impl TrackTable {
         self.slots
             .iter()
             .flatten()
-            .filter(|t| now_us.saturating_sub(t.last_seen_us) <= HIDE_AFTER_US)
+            .filter(|t| visible(t, now_us))
             .count()
     }
+
+    pub fn purge(&mut self, now_us: u64) {
+        for s in &mut self.slots {
+            if s.is_some_and(|t| now_us.saturating_sub(t.last_seen_us) > EVICT_AFTER_US) {
+                *s = None;
+            }
+        }
+    }
+
+    pub fn clear(&mut self) {
+        self.slots = [None; MAX_TRACKS];
+    }
+
+    /// Up to 8 visible tracks, strongest average RSSI first, then MAC ascending.
+    pub fn snapshot(&self, now_us: u64) -> [Option<Track>; SNAPSHOT_ROWS] {
+        let mut keys = [(i16::MIN, [0xFF; 6], usize::MAX); MAX_TRACKS];
+        for (k, (i, t)) in keys.iter_mut().zip(self.slots.iter().enumerate()) {
+            if let Some(t) = t.filter(|t| visible(t, now_us)) {
+                *k = (t.rssi_avg_x16, t.mac, i);
+            }
+        }
+        keys.sort_unstable_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
+        let mut rows = [None; SNAPSHOT_ROWS];
+        for (row, k) in rows.iter_mut().zip(keys) {
+            *row = self.slots.get(k.2).copied().flatten();
+        }
+        rows
+    }
+}
+
+fn visible(t: &Track, now_us: u64) -> bool {
+    now_us.saturating_sub(t.last_seen_us) <= HIDE_AFTER_US
 }

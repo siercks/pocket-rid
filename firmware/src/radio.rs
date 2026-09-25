@@ -26,7 +26,6 @@ pub struct RawObs {
 pub static OBS_CH: Channel<CriticalSectionRawMutex, RawObs, 32> = Channel::new();
 
 #[derive(Clone, Copy)]
-#[expect(dead_code, reason = "sent by button_task in M8")]
 pub enum RadioCmd {
     SetFixed(u8),
     SetHop,

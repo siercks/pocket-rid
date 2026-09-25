@@ -2,6 +2,7 @@
 #![no_main]
 
 mod board;
+mod buttons;
 mod obs;
 mod radio;
 mod status;
@@ -13,7 +14,7 @@ use embassy_executor::Spawner;
 use embassy_time::Timer;
 use esp_backtrace as _;
 use esp_hal::clock::CpuClock;
-use esp_hal::gpio::{Level, Output, OutputConfig};
+use esp_hal::gpio::{Input, InputConfig, Level, Output, OutputConfig, Pull};
 use esp_hal::interrupt::software::SoftwareInterruptControl;
 use esp_hal::ram;
 use esp_hal::timer::timg::TimerGroup;
@@ -77,5 +78,8 @@ async fn main(spawner: Spawner) {
     spawner.spawn(obs::obs_task().expect("spawn obs_task"));
     spawner.spawn(status::status_task(device_mac).expect("spawn status_task"));
     spawner.spawn(radio::radio_task(controller, sniffer).expect("spawn radio_task"));
+    let pull_up = InputConfig::default().with_pull(Pull::Up);
+    let (a, b) = (Input::new(p.GPIO0, pull_up), Input::new(p.GPIO14, pull_up));
+    spawner.spawn(buttons::button_task(a, b).expect("spawn button_task"));
     status::send_hello(device_mac);
 }
