@@ -20,3 +20,7 @@
 - M5: `main` builds all `PanelPins` (8.1) with LCD_BL LOW; `ui_task` drives it HIGH after init and clear, which keeps the 2.3 order. BOOT is drawn in FONT_8X13 at (8, 80).
 - M0 SERIAL CHECK passed 2026-09-24 (agent, board on COM3): `timeout 12 espflash monitor --chip esp32s3 --non-interactive` showed `rid-pocket boot 0.1.0` once per second. The interactive `espflash monitor` under Git Bash (mintty) leaves the chip in download mode and shows nothing; use `--non-interactive`.
 - M5 HUMAN CHECK passed 2026-09-24: (a) test image matches colors_correct.svg, (b) BOOT reads left to right in the reference pose with Deg90, (c) no edge noise; offset 35 and inversion as specified.
+- M6: `wifi::new` itself applies `ControllerConfig::initial_config` (station) and starts the controller, so firmware never calls `set_config`. `PACK_CAP` is reused from `rid_proto`.
+- M6: Items consumed only by later milestones carry `#[expect(dead_code, reason = …)]`, which fails the build once they are used, forcing removal.
+- M6: The M6 console line's DROP is `OBS_DROPPED` only; `TX_DROPPED` has no producer until M7.
+- M6 SERIAL CHECK passed 2026-09-24 (agent, COM3): flashed with `espflash flash --non-interactive`, captured `timeout 320 espflash monitor --non-interactive`: 317 one-second samples, BEACON rose on every one (~70/s on ch 6), port stayed connected, no panics.

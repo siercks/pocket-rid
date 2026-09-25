@@ -2,6 +2,8 @@
 #![no_main]
 
 mod board;
+mod radio;
+mod status;
 mod ui;
 
 use embassy_executor::Spawner;
@@ -12,6 +14,7 @@ use esp_hal::gpio::{Level, Output, OutputConfig};
 use esp_hal::interrupt::software::SoftwareInterruptControl;
 use esp_hal::ram;
 use esp_hal::timer::timg::TimerGroup;
+use esp_radio::wifi::{ControllerConfig, SecondaryChannel};
 
 use board::PanelPins;
 
@@ -51,9 +54,29 @@ async fn main(spawner: Spawner) {
     };
     spawner.spawn(ui::ui_task(pins).expect("spawn ui_task"));
 
+    let (mut controller, interfaces) =
+        esp_radio::wifi::new(p.WIFI, ControllerConfig::default()).expect("wifi::new");
+    let mut sniffer = interfaces.sniffer;
+    sniffer.set_receive_cb(radio::sniffer_cb);
+    sniffer.set_promiscuous_mode(true).expect("promiscuous");
+    controller
+        .set_channel(6, SecondaryChannel::None)
+        .expect("set_channel");
+    spawner.spawn(radio::radio_task(controller, sniffer).expect("spawn radio_task"));
+
     loop {
         #[cfg(feature = "console-text")]
-        esp_println::println!("rid-pocket boot {}", env!("CARGO_PKG_VERSION"));
+        {
+            use core::sync::atomic::Ordering::Relaxed;
+            use status::*;
+            esp_println::println!(
+                "MGMT {} BEACON {} RID {} DROP {}",
+                MGMT_FRAMES.load(Relaxed),
+                BEACONS.load(Relaxed),
+                RID_FRAMES.load(Relaxed),
+                OBS_DROPPED.load(Relaxed)
+            );
+        }
         Timer::after_millis(1000).await;
     }
 }
