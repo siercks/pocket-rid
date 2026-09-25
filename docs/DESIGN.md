@@ -1,6 +1,6 @@
 # RID Pocket Receiver — Technical Design & Agent Coding Plan
 
-Sep 24, 2026 · @Andrew · v1.2 (changes in section 14)
+Sep 24, 2026 · @Andrew · v1.3 (changes in section 14)
 
 ## 0. Rules for the implementing agent
 
@@ -50,7 +50,7 @@ The RID Pocket Receiver is receive-only firmware for a LILYGO T-Display-S3. It d
 | G5 | Host tool converts the stream to JSON Lines | Section 10 schema |
 | G6 | `odid` parser is `no_std`, fuzzed, and never panics | 10-minute `cargo fuzz` run with no crash |
 
-**Non-goals for v1 (MUST NOT be built):** any transmission; Wi-Fi NAN; Bluetooth RID (the sensor head's nRF52840 covers it); 5 GHz (the ESP32-S3 radio is 2.4 GHz only); own position, range or bearing; battery gauge; Kafka publishing; OTA updates; settings persisted to flash; Authentication verification.
+**Non-goals for v1 (MUST NOT be built):** any transmission; Wi-Fi NAN; Bluetooth RID (the sensor head's nRF52840 covers it); 5 GHz (the ESP32-S3 radio is 2.4 GHz only); own position, range or bearing; Kafka publishing; OTA updates; settings persisted to flash; Authentication verification.
 
 **Done means:** with a Remote ID broadcaster on the selected channel within about 100 m, its UAS ID appears on screen within 5 s and `rid-host` prints a matching JSON line.
 
@@ -72,8 +72,9 @@ The target is the T-Display-S3: ESP32-S3R8, 16 MB flash, 8 MB OPI PSRAM, and a 1
 | LCD\_D0 … D7 | 39, 40, 41, 42, 45, 46, 47, 48 | Output | Start LOW; tuple order D0→D7 into `Generic8BitBus` |
 | BUTTON\_A (BOOT) | 0 | Input, pull-up | Active low. Strapping pin; read only after boot |
 | BUTTON\_B (KEY) | 14 | Input, pull-up | Active low |
+| BAT\_ADC | 4 | Analog input (ADC1) | Battery voltage ÷ 2 through the on-board divider. Read only; added in v1.3 (section 8.8) |
 
-The following MUST NOT be configured in v1: GPIO4 (battery ADC), GPIO16/21 (touch), GPIO17/18 (I2C), GPIO43/44 (UART0), and GPIO19/20 (native USB).
+The following MUST NOT be configured in v1: GPIO16/21 (touch), GPIO17/18 (I2C), GPIO43/44 (UART0), and GPIO19/20 (native USB).
 
 ### 2.2 Panel parameters (normative)
 
@@ -669,7 +670,7 @@ Every `odid` message struct MUST derive `Clone, Copy, Debug, PartialEq, Eq`. The
 
 - `TrackTable::purge(now_us)` frees slots silent for more than `EVICT_AFTER_US`. `ui_task` calls it inside its 500 ms snapshot lock.
 - `TrackTable::clear()` empties every slot (BUTTON\_B long press).
-- Visible tracks are those silent for at most `HIDE_AFTER_US`. Sort by `rssi_avg_x16` descending, then MAC ascending. The snapshot copies at most 8 visible tracks.
+- Visible tracks are those silent for at most `HIDE_AFTER_US`. Sort by `rssi_avg_x16` descending, then MAC ascending. The snapshot copies at most 4 visible tracks (the LIST rows).
 - `tracks_active` in STATUS is the visible count.
 - Label: `basic_id[0].uas_id`, else `basic_id[1].uas_id`, else the MAC as `02:11:22:33:44:55` (lowercase hex).
 - UI selection is held as `selected_mac: Option<[u8; 6]>`, so it survives re-sorting. If the selected track disappears, selection moves to the first visible row.
@@ -678,7 +679,7 @@ Every `odid` message struct MUST derive `Clone, Copy, Debug, PartialEq, Eq`. The
 
 ## 8. Display and UI (`ui.rs`, `buttons.rs`)
 
-The UI has two views on a 320 × 170 landscape canvas: LIST (up to 6 tracks) and DETAIL (one track). It redraws only changed text lines, at most every 500 ms or on a button event.
+The UI has two views on a 320 × 170 landscape canvas: LIST (up to 4 tracks, plus a footer) and DETAIL (one track). It redraws only changed text lines, at most every 500 ms or on a button event.
 
 ### 8.1 Construction
 
@@ -707,14 +708,20 @@ Example: `CH06 FIX  TRK 2  RID 000123 DROP 0`.
 
 ### 8.4 LIST view
 
-Six rows; row `i` (0–5) has its top at `y = 18 + 25·i`, and the last row ends at y 168.
+Four rows; row `i` (0–3) has its top at `y = 16 + 36·i`, and the last row ends at y 159. The footer (8.8) occupies y 160–169.
 
 | Line | Font, color | Position | Content |
 | --- | --- | --- | --- |
-| 1 | `FONT_8X13`, `WHITE` (`RED` if status 3, `YELLOW` if status 4) | x 0, y top+1 | `>` if selected else space, then the label (max 20 chars); age `{s}s` (capped at 99) right-aligned to x 320 |
-| 2 | `FONT_6X10`, `CYAN` | x 8, y top+14 | `{st} ALT {alt_geo:.0} SPD {speed_h:.1} HDG {track:03} {rssi_avg}dBm` |
+| 1 | `FONT_8X13`, `WHITE` | x 0, y top+1 | `>` if selected else space, then the label (max 20 chars); last-heard age `{s}s` (capped at 99) right-aligned to x 320 |
+| 2 | `FONT_6X10`, `CYAN` (`RED` if status 3, `YELLOW` if status 4) | x 8, y top+15 | `{STATUS}  HGT {height:.0}m  ALT {alt_geo:.0}m  SPD {speed_h:.1}m/s  HDG {track:03}` |
+| 3 | `FONT_6X10`, `CYAN` | x 8, y top+25 | `{lat:.7}, {lon:.7}   seen {first_seen_s}s   {rssi_avg}dBm` |
 
-`st` is one letter: `U` undeclared, `G` ground, `A` airborne, `E` emergency, `F` RID failure, `-` no Location yet. With no visible tracks, clear rows 0–5 and draw `No Remote ID on CH06` (or `on HOP`) in `FONT_8X13` at (8, 80).
+- `STATUS` is the section 8.5 status name, or `---` with no Location yet. Invalid values render as `---` without their unit; an invalid position renders as `---, ---`.
+- `first_seen_s` is seconds since `first_seen_us`, capped at 9999. The line-1 age is seconds since `last_seen_us`.
+- The label rule is unchanged (section 7.2). ID2 is not a LIST line; it appears only in DETAIL.
+- Line 2 MAY be cut at the right edge for extreme values; `FmtBuf` truncates silently.
+
+With no visible tracks, clear rows 0–3 and draw `No Remote ID on CH06` (or `on HOP`) in `FONT_8X13` at (8, 80). The footer stays.
 
 ### 8.5 DETAIL view
 
@@ -752,12 +759,27 @@ Status names: `UNDECLARED`, `GROUND`, `AIRBORNE`, `EMERGENCY`, `RID-FAIL`. UA ty
 
 | Input | Action |
 | --- | --- |
-| A short (GPIO0) | Select next visible track (wraps) → `UiEvt::NextTrack` |
+| A short (GPIO0) | Select the next LIST row (up to 4, wraps) → `UiEvt::NextTrack` |
 | A long | Toggle LIST / DETAIL → `UiEvt::ToggleView` |
 | B short (GPIO14) | Next channel preset (6.2) → `RadioCmd`, then `UiEvt::Redraw` |
 | B long | Clear the track table → `UiEvt::ClearTracks` |
 
 `UI_EVT: Channel<CriticalSectionRawMutex, UiEvt, 8>` with `enum UiEvt { NextTrack, ToggleView, ClearTracks, Redraw }`.
+
+### 8.8 Footer and battery (LIST view only)
+
+`FONT_6X10` at y 160, full width, `BLACK` background. DETAIL keeps its 15 lines and shows no footer.
+
+| Part | Position | Content |
+| --- | --- | --- |
+| Battery | x 0 | `BAT {pct}% {v:.2}V` on battery; `USB {v:.2}V` when `v_bat ≥ 4.35 V`. `WHITE`; `YELLOW` below 15 %, `RED` below 5 % |
+| Uptime | right-aligned to x 320 | `up {hh:02}:{mm:02}:{ss:02}` from device time; hours do not wrap |
+
+**Measurement.** `ui_task` owns ADC1 with GPIO4 at 11 dB attenuation, using esp-hal's calibrated millivolt read if the locked version provides one for the ESP32-S3 (adapt per section 0 and log it). Each 500 ms pass takes 8 samples and averages them; `v_bat_mv = 2 × pin_mv`. Smooth with `avg += (v − avg) / 4` in `i32`, seeded by the first reading. The reading is display-only: STATUS keeps its section 9.3 layout.
+
+**Percent.** Linear interpolation over this LiPo table (mV → %), clamped to 0–100: 4200 → 100, 4100 → 90, 3980 → 75, 3900 → 55, 3840 → 35, 3780 → 15, 3700 → 5, 3500 → 0. It is an estimate (about ±10–15 %) and sags under Wi-Fi load.
+
+**USB.** The board has no charge-status pin. At or above 4.35 V the footer shows `USB` instead of a percentage. The M11 HUMAN CHECK records the reading on USB with no battery, USB with a battery, and battery alone; if 4.35 V misclassifies any of them, change the threshold and log it.
 
 ## 9. USB wire protocol (`crates/rid-proto`)
 
@@ -973,7 +995,7 @@ The optional `crates/odid-difftest` crate vendors opendroneid-core-c (Apache-2.0
 
 ## 12. Coding plan
 
-Work runs M0 → M9 in order, with M10 optional. Host-only milestones (M1–M4) need no hardware and run unattended; M2's fuzz runs MAY continue in the background while M3 starts. Checks come in two kinds:
+Work runs M0 → M9 in order, with M10 optional and M11 after M9. Host-only milestones (M1–M4) need no hardware and run unattended; M2's fuzz runs MAY continue in the background while M3 starts. Checks come in two kinds:
 
 - **SERIAL CHECK** needs only the board on USB. If a board is attached to the agent's machine (`espflash board-info` finds it), the agent flashes and runs the check itself with a non-interactive, time-bounded serial read, and records the method in `DECISIONS.md`. If no board is attached, or opening the port resets the chip into download mode, it becomes a HUMAN CHECK.
 - **HUMAN CHECK** needs eyes, hands or a broadcaster. The agent MUST stop, hand the listed steps and pass criteria to the human, and wait for the results. It MAY batch any pending SERIAL CHECK into the same session.
@@ -993,6 +1015,7 @@ Every check result is logged in `DECISIONS.md`.
 | M8 | UI, buttons, channel control (sections 6.2, 8) | HUMAN CHECK | M7 |
 | M9 | Field test (section 1 "Done means") | HUMAN CHECK | M8 |
 | M10 | Optional differential test vs. the C library | Agent | M1 |
+| M11 | LIST layout v1.3 and battery footer (sections 8.4, 8.8) | Agent + HUMAN CHECK | M8 |
 
 The host gate below runs at the end of every milestone and MUST pass:
 
@@ -1096,6 +1119,13 @@ git grep -nE 'send_raw_frame|scan_async|connect_async|set_config|esp_now|set_csi
 
 * [ ] Zero raw-field mismatches over 10⁶ random messages and packs.
 
+### M11: LIST layout and battery footer
+
+- Implement section 8.4 as amended in v1.3 and section 8.8. Configure GPIO4 only as an ADC input.
+
+* [ ] Firmware gate passes.
+* [ ] HUMAN CHECK: with one or more tracks, each LIST row shows the three lines of 8.4 with units, and A short cycles only the visible rows. The footer shows `BAT nn% v.vvV` on battery, `USB v.vvV` on USB, and uptime counting up. Battery voltage agrees with a multimeter at the JST connector within ±0.1 V. Record the three readings from 8.8.
+
 ## 13. Risks, open questions, verification status
 
 The firmware design rests on verified sources. The largest remaining uncertainty is the field-test target, not the code.
@@ -1116,6 +1146,7 @@ The firmware design rests on verified sources. The largest remaining uncertainty
 | MAC rotation creates duplicate tracks | Clutter | Documented v1 limitation | high |
 | USB VID:PID `303a:1001` for the udev rule | Wrong symlink | Confirm with `lsusb` first | moderate (training data) |
 | Receive-only guarantee | Legal and policy exposure | Call allowlist plus CI grep (6.1) | high |
+| Battery percentage from voltage | Reading jumps under Wi-Fi load; wrong USB classification | 8-sample average plus smoothing; threshold verified in M11 and adjustable | moderate (typical LiPo curve, board divider from the LilyGO README) |
 | Parser parity with the reference decoder | Silent disagreement with other receivers | Strict content rule; negative vectors confirmed against the C library; optional M10 difftest | high (verified) |
 
 Sources for the Mini 4 Pro row: [MavicPilots thread, page 2](https://mavicpilots.com/threads/mini-4-pro-plus-battery-and-rid.150954/page-2).
@@ -1147,6 +1178,18 @@ Sources for the Mini 4 Pro row: [MavicPilots thread, page 2](https://mavicpilots
 | 6.1, 12 | Allowlist check uses `git grep`, so it runs anywhere git does |
 | 11.4, 12 | CI `host` and `fuzz` jobs; M2 becomes a CI CHECK; SERIAL CHECK detects the board with `espflash board-info` |
 | 13 | Windows dev-host risk row |
+
+**v1.3 (2026-09-24).** LIST layout and battery footer, requested after M8.
+
+| Section | Change |
+| --- | --- |
+| 1 | "Battery gauge" removed from the non-goals |
+| 2.1 | GPIO4 becomes `BAT_ADC`, analog input only |
+| 7.2 | Snapshot holds at most 4 tracks |
+| 8, 8.4 | LIST shows 4 rows of 3 lines: ID and age; status, height, altitude, speed, heading with units; position, first seen, RSSI. ID2 only in DETAIL |
+| 8.7 | A short cycles the visible LIST rows |
+| 8.8 | New footer: battery (or USB) and uptime |
+| 12, 13 | M11 milestone and risk row |
 
 ## Sources
 
