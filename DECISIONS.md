@@ -17,3 +17,6 @@
 - M4: JSON uses serde derive (field order = struct order); `serde_json` runs without `preserve_order`. `ts_acc` and the accuracy fields are emitted as raw codes. `source` is `"wifi_beacon"` for 1, else `"unknown"`; an unknown LOG level is `"unknown"`. `pack_error` is the `PackError` variant name without its payload.
 - M4: A frame that passes CRC but has a payload size its type disallows counts as `bad_frames` and is not printed as device text (only chunks < 18 B are).
 - M4: The `cfg(unix)` path of `rid-host` was checked locally with `cargo clippy --target x86_64-unknown-linux-gnu`; CI builds and tests it natively.
+- M5: `main` builds all `PanelPins` (8.1) with LCD_BL LOW; `ui_task` drives it HIGH after init and clear, which keeps the 2.3 order. BOOT is drawn in FONT_8X13 at (8, 80).
+- M0 SERIAL CHECK passed 2026-09-24 (agent, board on COM3): `timeout 12 espflash monitor --chip esp32s3 --non-interactive` showed `rid-pocket boot 0.1.0` once per second. The interactive `espflash monitor` under Git Bash (mintty) leaves the chip in download mode and shows nothing; use `--non-interactive`.
+- M5 HUMAN CHECK passed 2026-09-24: (a) test image matches colors_correct.svg, (b) BOOT reads left to right in the reference pose with Deg90, (c) no edge noise; offset 35 and inversion as specified.
